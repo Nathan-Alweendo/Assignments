@@ -70,7 +70,7 @@ table<Resource> key(assetTag) Resource_table = table [];
 service / on new http:Listener(9090) {
 
 // =========================================================
-// RESOURCE CRUD OPERATIONS - EUGENE
+// RESOURCE CRUD OPERATIONS 
 // =========================================================
 
 // CREATE: Add a new resource
@@ -127,7 +127,7 @@ resource function delete assets/[string assetTag]() returns string|error {
     return "Resource deleted successfully";
 }
     // =========================================================
-    // COMPONENT CRUD OPERATIONS - KUJII
+    // COMPONENT CRUD OPERATIONS 
     // =========================================================
 
     // CREATE: Add a new component
