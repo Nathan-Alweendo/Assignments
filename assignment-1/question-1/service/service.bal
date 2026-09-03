@@ -64,6 +64,9 @@ table<Component> key(id) Component_Table = table [];
 table<WorkOrder> key(orderID) WorkOrder_Table = table [];
 table<Resource> key (assetTag) Resource_table = table [];
 
+//defining the table listing for Add/Remove institutions
+string[] institution_listings = ["NUST", "UNAM"];
+
 # A service representing a network-accessible API
 # bound to port `9090`.
 service / on new http:Listener(9090) {
@@ -177,4 +180,39 @@ service / on new http:Listener(9090) {
         var _ = subtask_Table.remove(taskID);
         return "Sub-task deleted successfully";
     }
+
+    // Kennedy's Task: Manage Institutions (5 Marks)
+    //Retrieve current listed institutions
+    resource function get institutions() returns string[] {
+        lock {
+            return institution_listings;
+        }
+    }
+
+    //Add a new institution name to system listings
+    resource function post institutions(string institutionName) returns string|error {
+        lock {
+            if institutionName.trim() == "" {
+                return error("Institution name cannot be blank");
+            }
+            if institution_listings.indexOf(institutionName) != () {
+                return error("Institution already exists in system listings");
+            }
+            institution_listings.push(institutionName);
+            return "Institution added successfully";
+        }
+    }
+
+    //Remove an institution from system listings
+    resource function delete institutions/[string name]() returns string|error {
+        lock {
+            int? index = institution_listings.indexOf(name);
+            if index is int {
+                _ = institution_listings.remove(index);
+                return "Institution removed successfully";
+            }
+            return error("Institution not found in system listings");
+        }
+    }
+
 }
