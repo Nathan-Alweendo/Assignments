@@ -65,16 +65,13 @@ table<Component> key(id) Component_Table = table [];
 table<WorkOrder> key(orderID) WorkOrder_Table = table [];
 table<Resource> key(assetTag) Resource_table = table [];
 
-<<<<<<< HEAD
 //defining the table listing for Add/Remove institutions
 string[] institution_listings = ["NUST", "UNAM"];
 
 # A service representing a network-accessible API
 # bound to port `9090`.
-=======
 // A service representing a network-accessible API
 // bound to port 9090.
->>>>>>> aedff4789ee18e6340ee24184dd89d5134e4a0fd
 service / on new http:Listener(9090) {
 
 // =========================================================

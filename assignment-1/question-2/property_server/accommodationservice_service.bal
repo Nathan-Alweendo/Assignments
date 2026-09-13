@@ -29,6 +29,9 @@ table<Booking> key(booking_id) booking_table = table [];
 // Helper table to track pending booking requests before confirmation
 map<BookPropertyRequest> pending_bookings = {};
 
+// Global integer counter used to generate simple incremental IDs
+int booking_counter = 1000;
+
 listener grpc:Listener ep = new (9090);
 
 @grpc:Descriptor {value: PROTOCOLBUFFER_DESC}
@@ -43,13 +46,101 @@ service "AccommodationService" on ep {
     remote function remove_property(RemovePropertyRequest value) returns RemovePropertyResponse|error {
     }
 
-    remote function search_property(SearchPropertyRequest value) returns SearchPropertyResponse|error {
+//Kennedy's confirm_booking code
+remote function search_property(SearchPropertyRequest value) returns SearchPropertyResponse|error {
+    lock {
+        // Find property directly by its unique key
+        TableProperty? prop = property_table[value.property_id];
+
+        //Use exact case-sensitive string literals for gRPC enum comparison
+        if prop is TableProperty && prop.status == "AVAILABLE" {
+            
+            Property matchingDetails = {
+                property_id: prop.property_id,
+                host_id: prop.host_id,
+                name: prop.name,
+                location: prop.location,
+                property_type: prop.property_type,
+                price_per_night: prop.price_per_night,
+                status: prop.status
+            };
+
+            // 2. Fixed: Use string literal "AVAILABLE" for the AvailabilityStatus enum
+            SearchPropertyResponse response = {
+                status: <AvailabilityStatus>"AVAILABLE",
+                property: matchingDetails
+            };
+            return response;
+        } else {
+            SearchPropertyResponse fallbackResponse = {
+                status: NOT_AVAILABLE
+            };
+            return fallbackResponse;
+        }
     }
+}
+
 
     remote function book_property(BookPropertyRequest value) returns BookPropertyResponse|error {
     }
 
+//Kennedy's confirm_booking code
     remote function confirm_booking(ConfirmBookingRequest value) returns ConfirmBookingResponse|error {
+        lock {
+            //Fetch the temporary request from the map
+            if !pending_bookings.hasKey(value.booking_request_id) {
+                ConfirmBookingResponse errResponse = {booking_id: "", success: false, message: "REJECTED - Request not found", total_cost: 0.0};
+                return errResponse;
+            }
+            BookPropertyRequest pending = pending_bookings.get(value.booking_request_id);
+
+            //Simple Overlap Check Loop (Compares standard YYYY-MM-DD strings directly)
+            foreach var existing in booking_table {
+                if existing.property_id == pending.property_id {
+                    // Formula check: (New_Start < Existing_End) AND (New_End > Existing_Start)
+                    if pending.check_in_date < existing.check_out_date && pending.check_out_date > existing.check_in_date {
+                        _ = pending_bookings.remove(value.booking_request_id); // Clear staging cart
+                        ConfirmBookingResponse overlapResponse = {booking_id: "", success: false, message: "REJECTED - Dates overlap", total_cost: 0.0};
+                        return overlapResponse;
+                    }
+                }
+            }
+
+            //Fetch property to get the base nightly rate and safely handle type guards
+            TableProperty? prop = property_table[pending.property_id];
+            if prop is () {
+                return error("Property no longer exists");
+            }
+
+            //Calculate flat base cost from active property data records safely 
+            float totalCostCalculated = <float>prop.price_per_night; 
+
+            //Save the finalized booking into the table ledger
+            booking_counter += 1;
+            string officialBookingId = "BK-" + booking_counter.toString();
+
+            Booking finalBooking = {
+                booking_id: officialBookingId,
+                booking_request_id: value.booking_request_id,
+                property_id: pending.property_id,
+                guest_id: pending.guest_id,
+                check_in_date: pending.check_in_date,
+                check_out_date: pending.check_out_date,
+                total_cost: totalCostCalculated
+            };
+            booking_table.add(finalBooking);
+
+            //Clear out the temporary cart item
+            _ = pending_bookings.remove(value.booking_request_id);
+
+            ConfirmBookingResponse validResponse = {
+                booking_id: officialBookingId,
+                success: true,
+                message: "CONFIRMED",
+                total_cost: totalCostCalculated
+            };
+            return validResponse;
+        }
     }
 
     remote function create_users(stream<CreateUserRequest, grpc:Error?> clientStream) returns CreateUsersSummary|error {
