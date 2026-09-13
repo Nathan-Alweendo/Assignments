@@ -1,4 +1,5 @@
 import ballerina/grpc;
+import ballerina/uuid;
 //  Data Structures with Readonly Keys 
 
 type TableProperty record {|
@@ -144,7 +145,24 @@ remote function search_property(SearchPropertyRequest value) returns SearchPrope
     }
 
     remote function create_users(stream<CreateUserRequest, grpc:Error?> clientStream) returns CreateUsersSummary|error {
-        
+       string []createdIds=[];
+        check from  CreateUserRequest req in clientStream 
+        do {
+            string newUserId=uuid:createType4AsString();
+            TableUser newUser={
+                user_id: newUserId,
+                name:req.name,
+                email: req.email,
+                role: req.role
+            };
+            user_table.add(newUser);
+            createdIds.push(newUserId);
+        };
+        CreateUsersSummary summary={
+            total_created: createdIds.length(),
+            user_ids: createdIds
+        };
+        return summary;
     }
 
     remote function list_available_properties(ListAvailablePropertiesRequest value) returns stream<Property, error?>|error {
