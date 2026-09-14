@@ -289,5 +289,33 @@ remote function search_property(SearchPropertyRequest value) returns SearchPrope
     }
 
     remote function list_available_properties(ListAvailablePropertiesRequest value) returns stream<Property, error?>|error {
+            Property[] filteredProperties = [];
+
+        foreach var prop in TableProperty {
+            // Check availability status enum from protobuf
+            if prop.status != AVAILABLE {
+                continue;
+            }
+
+            // Optional filter: Location (case-insensitive check or direct matching)
+            if req.location != "" && prop.location.toLowerAscii() != req.location.toLowerAscii() {
+                continue;
+            }
+
+            // Optional filter: Minimum Price
+            if req.min_price > 0.0 && prop.price_per_night < req.min_price {
+                continue;
+            }
+
+            // Optional filter: Maximum Price
+            if req.max_price > 0.0 && prop.price_per_night > req.max_price {
+                continue;
+            }
+
+            filteredProperties.push(prop);
+        }
+
+        // Return as a stream to fulfill the server-side streaming requirement
+        return filteredProperties.toStream();
     }
 }
