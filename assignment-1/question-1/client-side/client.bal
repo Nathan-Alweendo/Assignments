@@ -16,7 +16,7 @@ public function main() returns error? {
         io:println("\n--- MAIN MENU INTERFACE ---");
         io:println("1. Check Maintenance Overdue Logs");
         io:println("2. Manage System Work Orders & Tasks");
-        io:println("3. Manage Ministry Institutions");
+        io:println("3. Manage Ministry Institutions & Resources");
         io:println("4. Exit Terminal Session");
         
         string choice = io:readln("Select a menu option (1-4): ");
@@ -106,36 +106,57 @@ function manageWorkOrdersMenu() returns error? {
     }
 }
 
-// 3. INSTITUTION INTERFACE
+// 3. UPDATED INSTITUTION INTERFACE: GLOBAL, CAMPUS & RESOURCE TRACKING
 function manageInstitutionsMenu() returns error? {
-    io:println("\n--- INSTITUTION LIST MANAGEMENT ---");
-    io:println("1. View Current Registered Listings");
-    io:println("2. Add a New Institution");
-    io:println("3. Remove an Institution");
-    string instChoice = io:readln("Select an action (1-3): ");
+    io:println("\n--- CAMPUS RESOURCE MANAGEMENT ---");
+    io:println("1. Global View (Show All Book & Loan Resources)");
+    io:println("2. Campus View (Filter Resources by Specific Institution)");
+    io:println("3. Register a New Campus Resource (Book or Loan)");
+    io:println("4. Back to Main Menu");
+    string instChoice = io:readln("Select an action (1-4): ");
 
     if instChoice == "1" {
-        // FIX: Handled as an http:Response instead of a raw json assignment
-        http:Response res = check backendClient->get("/institutions");
+        io:println("\n[Scanning] Fetching global inventory directory...");
+        http:Response res = check backendClient->get("/resources/global");
         if res.statusCode == 200 {
             json list = check res.getJsonPayload();
-            io:println("\nActive System Directory: ", list.toJsonString());
+            io:println("\n--- GLOBAL INVENTORY MAP ---");
+            io:println(list.toJsonString());
         } else {
-            io:println("Error: Could not retrieve active system directory.");
+            io:println("Error: Could not retrieve global system directory.");
         }
     } 
     else if instChoice == "2" {
-        string name = io:readln("Enter Institution Name to Add (e.g. IUM): ");
-        string urlWithPath = "/institutions?institutionName=" + name;
+        string campusName = io:readln("Enter Campus Name to filter (e.g., IUM, UNAM, NUST): ");
+        io:println("\n[Filtering] Gathering records for campus: " + campusName);
         
-        // Pass () as the body payload since the backend reads it from the URL string
-        http:Response res = check backendClient->post(urlWithPath, ());
-        io:println("Server Response Code: ", res.statusCode);
-        io:println("Server Body Output: ", check res.getTextPayload());
+        http:Response res = check backendClient->get("/resources/campus/" + campusName);
+        if res.statusCode == 200 {
+            json list = check res.getJsonPayload();
+            io:println("\n--- CAMPUS VIEW: " + campusName + " ---");
+            io:println(list.toJsonString());
+        } else {
+            io:println("Error: Could not find resource entries for this campus.");
+        }
     } 
     else if instChoice == "3" {
-        string name = io:readln("Enter Institution Name to Remove: ");
-        http:Response res = check backendClient->delete("/institutions/" + name);
+        string resourceID = io:readln("Enter Unique Resource ID (e.g., RES-101): ");
+        string title = io:readln("Enter Title/Description of Item: ");
+        string resourceType = io:readln("Enter Resource Category (BOOK or LOAN): ");
+        string campusAssignment = io:readln("Assign to Campus Name: ");
+        
+        // FIX: Replaced .toUpperCase() with standard type-bound method
+        string upperType = string:toUpperAscii(resourceType);
+
+        json resourcePayload = {
+            "resourceID": resourceID,
+            "title": title,
+            "resourceType": upperType,
+            "institutionName": campusAssignment,
+            "status": "AVAILABLE"
+        };
+
+        http:Response res = check backendClient->post("/resources", resourcePayload);
         io:println("Server Response Code: ", res.statusCode);
         io:println("Server Body Output: ", check res.getTextPayload());
     }
