@@ -144,8 +144,6 @@ function manageInstitutionsMenu() returns error? {
         string title = io:readln("Enter Title/Description of Item: ");
         string resourceType = io:readln("Enter Resource Category (BOOK or LOAN): ");
         string campusAssignment = io:readln("Assign to Campus Name: ");
-        
-        // FIX: Replaced .toUpperCase() with standard type-bound method
         string upperType = string:toUpperAscii(resourceType);
 
         json resourcePayload = {
