@@ -1,7 +1,18 @@
 import ballerina/http;
 import ballerina/time;
 
-type Resource record {|
+// =========================================================
+// DATA MODELS & SCHEMAS
+// =========================================================
+
+public enum Status {
+    AVAILABLE,
+    LOANED_OUT,
+    UNDER_MAINTENACE,
+    DISPOSED
+}
+
+public type Resource record {|
     readonly string assetTag;
     string category;
     string description;
@@ -10,15 +21,7 @@ type Resource record {|
     string dateAquired;
 |};
 
-enum Status {
-    AVAILABLE,
-    LOANED_OUT,
-    UNDER_MAINTENACE,
-    DISPOSED
-}
-
-// Record for components and assetTag as the foreign key
-type Component record {|
+public type Component record {|
     readonly string id;
     string name;
     string description;
@@ -27,8 +30,7 @@ type Component record {|
     string date_acquired;
 |};
 
-// Record for ScheduleEntry and assetTag as the foreign key
-type ScheduleEntry record {|
+public type ScheduleEntry record {|
     readonly string entryID;
     string assetTag;
     string maintenanceType;
@@ -38,8 +40,7 @@ type ScheduleEntry record {|
     string description;
 |};
 
-// Record for WorkOrder and assetTag as the foreign key
-type WorkOrder record {|
+public type WorkOrder record {|
     readonly string orderID;
     string entryID;
     string assetTag;
@@ -51,331 +52,504 @@ type WorkOrder record {|
     string assignedTo;
 |};
 
-// Record for subtask and workorder as the foreign key
-type subtask record {|
+public type SubTask record {|
     readonly string taskID;
     string workorderID;
     string description;
     string status;
 |};
 
-table<subtask> key(taskID) subtask_Table = table [];
-table<ScheduleEntry> key(entryID) ScheduleEntry_Table = table [];
-table<Component> key(id) Component_Table = table [];
-table<WorkOrder> key(orderID) WorkOrder_Table = table [];
-table<Resource> key(assetTag) Resource_table = table [];
+public type Schedule record {|
+    string scheduleId;
+    string 'type;
+    string dueDate;
+    string description;
+|};
 
-// A service representing a network-accessible API
-// bound to port 9090.
+public type Task record {|
+    string taskId;
+    string description;
+|};
+
+public type AssetWorkOrder record {|
+    string orderId;
+    string status;
+    string description;
+    Task[] tasks;
+|};
+
+public type AssetComponent record {|
+    string compId;
+    string name;
+    string description;
+    Schedule[] schedules?;
+    AssetWorkOrder[] workOrders?;
+|};
+
+public type Asset record {|
+    readonly string assetTag;
+    string name;
+    string description;
+    string institution;
+    string site;
+    string status;
+    string dateAcquired;
+    AssetComponent[] components?;
+    Schedule[] schedules?;
+|};
+
+public type AssetScheduleStatusResponse record {|
+    string assetTag;
+    string name;
+    string currentStatus;
+    Schedule[] topLevelSchedules;
+    Schedule[] componentSchedules;
+|};
+
+// =========================================================
+// ISOLATED IN-MEMORY STORAGE
+// =========================================================
+
+isolated table<SubTask> key(taskID) subtask_Table = table [];
+isolated table<ScheduleEntry> key(entryID) ScheduleEntry_Table = table [];
+isolated table<Component> key(id) Component_Table = table [];
+isolated table<WorkOrder> key(orderID) WorkOrder_Table = table [];
+isolated table<Resource> key(assetTag) Resource_table = table [];
+
+isolated table<Asset> key(assetTag) assetTable = table [
+    {
+        assetTag: "NUST-LIB-3DP-001",
+        name: "Pro-Series 3D Printer",
+        description: "High-precision laboratory printer for simulation",
+        institution: "Namibia University of Science and Technology",
+        site: "Main Campus Innovation Lab",
+        status: "AVAILABLE",
+        dateAcquired: "2024-03-10",
+        schedules: [
+            {
+                scheduleId: "SCH-001",
+                'type: "BOOKING",
+                dueDate: "2026-09-15",
+                description: "Reserved for Mechanical Engineering Lab"
+            }
+        ],
+        components: [
+            {
+                compId: "C101",
+                name: "High-Torque Stepper Motor",
+                description: "Main motor for X-axis movement",
+                schedules: [
+                    {
+                        scheduleId: "SCH-882",
+                        'type: "MAINTENANCE",
+                        dueDate: "2026-09-01",
+                        description: "Quarterly calibration and nozzle cleaning."
+                    }
+                ]
+            }
+        ]
+    }
+];
+
+// =========================================================
+// HTTP SERVICE
+// =========================================================
+
 service / on new http:Listener(9090) {
 
-// =========================================================
-// RESOURCE CRUD OPERATIONS -
-// =========================================================
+    // -----------------------------------------------------
+    // RESOURCE ENDPOINTS
+    // -----------------------------------------------------
 
-// CREATE: Add a new resource
-resource function post assets(Resource newResource) returns string|error {
+    isolated resource function post assets(Resource newResource)
+        returns string|error {
 
-    if Resource_table.hasKey(newResource.assetTag) {
-        return error("Resource with asset tag already exists");
+        Resource readonlyRes = newResource.cloneReadOnly();
+
+        lock {
+            if Resource_table.hasKey(readonlyRes.assetTag) {
+                return error("Resource with asset tag already exists");
+            }
+
+            Resource_table.add(readonlyRes);
+        }
+
+        return "Resource added successfully";
     }
 
-    Resource_table.add(newResource);
+    isolated resource function get assets/[string assetTag]()
+        returns Resource|error {
 
-    return "Resource added successfully";
-}
+        lock {
+            Resource? foundResource = Resource_table[assetTag];
 
-// READ: Look up a resource using its asset tag
-resource function get assets/[string assetTag]() returns Resource|error {
+            if foundResource is Resource {
+                return foundResource.cloneReadOnly();
+            }
+        }
 
-    Resource? foundResource = Resource_table[assetTag];
-
-    if foundResource is Resource {
-        return foundResource;
-    }
-
-    return error("Resource not found");
-}
-
-// UPDATE: Update an existing resource
-resource function put assets/[string assetTag](Resource updatedResource) returns string|error {
-
-    if !Resource_table.hasKey(assetTag) {
         return error("Resource not found");
     }
 
-    if assetTag != updatedResource.assetTag {
-        return error(
-            "Asset tag in URL does not match asset tag in request body"
-        );
-    }
+    isolated resource function put assets/[string assetTag](Resource updatedResource)
+        returns string|error {
 
-    Resource_table.put(updatedResource);
-
-    return "Resource updated successfully";
-}
-
-// DELETE: Remove a resource using its asset tag
-resource function delete assets/[string assetTag]() returns string|error {
-
-    if !Resource_table.hasKey(assetTag) {
-        return error("Resource not found");
-    }
-
-    var _ = Resource_table.remove(assetTag);
-
-    return "Resource deleted successfully";
-}
-    // =========================================================
-    // COMPONENT CRUD OPERATIONS
-    // =========================================================
-
-    // CREATE: Add a new component
-    resource function post component(Component component) returns string|error {
-
-        // Check that the referenced resource exists
-        if !Resource_table.hasKey(component.assetTag) {
-            return error("Referenced asset does not exist");
+        if assetTag != updatedResource.assetTag {
+            return error(
+                "Asset tag in URL does not match asset tag in request body"
+            );
         }
 
-        // Check if component already exists
-        if Component_Table.hasKey(component.id) {
-            return error("Component already exists");
+        Resource readonlyRes = updatedResource.cloneReadOnly();
+
+        lock {
+            if !Resource_table.hasKey(assetTag) {
+                return error("Resource not found");
+            }
+
+            Resource_table.put(readonlyRes);
         }
 
-        Component_Table.add(component);
+        return "Resource updated successfully";
+    }
+
+    isolated resource function delete assets/[string assetTag]()
+        returns string|error {
+
+        lock {
+            if !Resource_table.hasKey(assetTag) {
+                return error("Resource not found");
+            }
+
+            _ = Resource_table.remove(assetTag);
+        }
+
+        return "Resource deleted successfully";
+    }
+
+    // -----------------------------------------------------
+    // COMPONENT ENDPOINTS
+    // -----------------------------------------------------
+
+    isolated resource function post component(Component component)
+        returns string|error {
+
+        Component readonlyComp = component.cloneReadOnly();
+
+        lock {
+            if !Resource_table.hasKey(readonlyComp.assetTag) {
+                return error("Referenced asset does not exist");
+            }
+
+            if Component_Table.hasKey(readonlyComp.id) {
+                return error("Component already exists");
+            }
+
+            Component_Table.add(readonlyComp);
+        }
 
         return "Component added successfully";
     }
 
-    // READ: Look up a component using its ID
-    resource function get component/[string id]() returns Component|error {
+    isolated resource function get component/[string id]()
+        returns Component|error {
 
-        Component? component = Component_Table[id];
+        lock {
+            Component? comp = Component_Table[id];
 
-        if component is Component {
-            return component;
+            if comp is Component {
+                return comp.cloneReadOnly();
+            }
         }
 
         return error("Component not found");
     }
 
-    // UPDATE: Update an existing component
-    resource function put component/[string id](Component component) returns string|error {
+    isolated resource function put component/[string id](Component component)
+        returns string|error {
 
-        // Check that the component exists
-        if !Component_Table.hasKey(id) {
-            return error("Component not found");
-        }
-
-        // Make sure the ID in the URL matches the ID in the request body
         if id != component.id {
             return error(
                 "Component ID in URL does not match component ID in request body"
             );
         }
 
-        // Check that the referenced resource exists
-        if !Resource_table.hasKey(component.assetTag) {
-            return error("Referenced asset does not exist");
-        }
+        Component readonlyComp = component.cloneReadOnly();
 
-        Component_Table.put(component);
+        lock {
+            if !Resource_table.hasKey(readonlyComp.assetTag) {
+                return error("Referenced asset does not exist");
+            }
+
+            if !Component_Table.hasKey(id) {
+                return error("Component not found");
+            }
+
+            Component_Table.put(readonlyComp);
+        }
 
         return "Component updated successfully";
     }
 
-    // DELETE: Remove a component using its ID
-    resource function delete component/[string id]() returns string|error {
+    isolated resource function delete component/[string id]()
+        returns string|error {
 
-        if !Component_Table.hasKey(id) {
-            return error("Component not found");
+        lock {
+            if !Component_Table.hasKey(id) {
+                return error("Component not found");
+            }
+
+            _ = Component_Table.remove(id);
         }
-
-        var _ = Component_Table.remove(id);
 
         return "Component deleted successfully";
     }
 
+    // -----------------------------------------------------
+    // MAINTENANCE OVERDUE
+    // -----------------------------------------------------
 
-    // =========================================================
-    // MAINTENANCE & OVERDUE CHECK
-    // =========================================================
-
-    // Identify maintenance entries where the due date has passed
-    resource function get due_date_passed() returns ScheduleEntry[]|error {
+    isolated resource function get due_date_passed()
+        returns ScheduleEntry[]|error {
 
         time:Utc currentTime = time:utcNow();
         time:Civil currentCivil = time:utcToCivil(currentTime);
-
         string today = check time:civilToString(currentCivil);
 
-        ScheduleEntry[] overdueEntries =
-            from var entry in ScheduleEntry_Table
-            where entry.maintenanceType == "MAINTENANCE"
-                && entry.duedate < today
-            select entry;
+        lock {
+            ScheduleEntry[] overdueEntries =
+                from var entry in ScheduleEntry_Table
+                where entry.maintenanceType == "MAINTENANCE"
+                    && entry.duedate < today
+                select entry;
 
-        if overdueEntries.length() == 0 {
-            return error(
-                "No maintenance entries found with due date passed"
-            );
+            if overdueEntries.length() == 0 {
+                return error(
+                    "No maintenance entries found with due date passed"
+                );
+            }
+
+            return overdueEntries.cloneReadOnly();
         }
-
-        return overdueEntries;
     }
 
+    // -----------------------------------------------------
+    // WORK ORDER ENDPOINTS
+    // -----------------------------------------------------
 
-    // =========================================================
-    // WORK ORDER CRUD OPERATIONS
-    // =========================================================
+    isolated resource function post work_order(WorkOrder workorder)
+        returns string|error {
 
-    // CREATE: Add a new work order
-    resource function post work_order(WorkOrder workorder) returns string|error {
+        WorkOrder readonlyWorkOrder = workorder.cloneReadOnly();
 
-        // Check that the referenced resource exists
-        if !Resource_table.hasKey(workorder.assetTag) {
-            return error("Referenced asset does not exist");
+        lock {
+            if !Resource_table.hasKey(readonlyWorkOrder.assetTag) {
+                return error("Referenced asset does not exist");
+            }
+
+            if readonlyWorkOrder.componentID != ""
+                && !Component_Table.hasKey(readonlyWorkOrder.componentID) {
+                return error("Referenced component does not exist");
+            }
+
+            if readonlyWorkOrder.entryID != ""
+                && !ScheduleEntry_Table.hasKey(readonlyWorkOrder.entryID) {
+                return error("Referenced schedule entry does not exist");
+            }
+
+            if WorkOrder_Table.hasKey(readonlyWorkOrder.orderID) {
+                return error("Work order already exists");
+            }
+
+            WorkOrder_Table.add(readonlyWorkOrder);
         }
-
-        // Check that the referenced component exists
-        if workorder.componentID != ""
-            && !Component_Table.hasKey(workorder.componentID) {
-            return error("Referenced component does not exist");
-        }
-
-        // Check that the referenced schedule entry exists
-        if workorder.entryID != ""
-            && !ScheduleEntry_Table.hasKey(workorder.entryID) {
-            return error("Referenced schedule entry does not exist");
-        }
-
-        // Check if work order already exists
-        if WorkOrder_Table.hasKey(workorder.orderID) {
-            return error("Work order already exists");
-        }
-
-        WorkOrder_Table.add(workorder);
 
         return "Work order added successfully";
     }
 
-    // READ: Look up a work order
-    resource function get work_order/[string orderID]() returns WorkOrder|error {
+    isolated resource function get work_order/[string orderID]()
+        returns WorkOrder|error {
 
-        WorkOrder? workorder = WorkOrder_Table[orderID];
+        lock {
+            WorkOrder? workorder = WorkOrder_Table[orderID];
 
-        if workorder is WorkOrder {
-            return workorder;
+            if workorder is WorkOrder {
+                return workorder.cloneReadOnly();
+            }
         }
 
         return error("Work order not found");
     }
 
-    // UPDATE: Update an existing work order
-    resource function put work_order/[string orderID](WorkOrder workorder)
-            returns string|error {
+    isolated resource function put work_order/[string orderID](WorkOrder workorder)
+        returns string|error {
 
-        if !WorkOrder_Table.hasKey(orderID) {
-            return error("Work order not found");
+        if orderID != workorder.orderID {
+            return error(
+                "Work order ID in URL does not match work order ID in request body"
+            );
         }
 
-        // Check that the referenced resource exists
-        if !Resource_table.hasKey(workorder.assetTag) {
-            return error("Referenced asset does not exist");
-        }
+        WorkOrder readonlyWorkOrder = workorder.cloneReadOnly();
 
-        // Check that the referenced component exists
-        if workorder.componentID != ""
-            && !Component_Table.hasKey(workorder.componentID) {
-            return error("Referenced component does not exist");
-        }
+        lock {
+            if !WorkOrder_Table.hasKey(orderID) {
+                return error("Work order not found");
+            }
 
-        // Check that the referenced schedule entry exists
-        if workorder.entryID != ""
-            && !ScheduleEntry_Table.hasKey(workorder.entryID) {
-            return error("Referenced schedule entry does not exist");
-        }
+            if !Resource_table.hasKey(readonlyWorkOrder.assetTag) {
+                return error("Referenced asset does not exist");
+            }
 
-        WorkOrder_Table.put(workorder);
+            if readonlyWorkOrder.componentID != ""
+                && !Component_Table.hasKey(readonlyWorkOrder.componentID) {
+                return error("Referenced component does not exist");
+            }
+
+            if readonlyWorkOrder.entryID != ""
+                && !ScheduleEntry_Table.hasKey(readonlyWorkOrder.entryID) {
+                return error("Referenced schedule entry does not exist");
+            }
+
+            WorkOrder_Table.put(readonlyWorkOrder);
+        }
 
         return "Work order updated successfully";
     }
 
-    // DELETE: Remove a work order
-    resource function delete work_order/[string orderID]() returns string|error {
+    isolated resource function delete work_order/[string orderID]()
+        returns string|error {
 
-        if !WorkOrder_Table.hasKey(orderID) {
-            return error("Work order not found");
+        lock {
+            if !WorkOrder_Table.hasKey(orderID) {
+                return error("Work order not found");
+            }
+
+            _ = WorkOrder_Table.remove(orderID);
         }
-
-        var _ = WorkOrder_Table.remove(orderID);
 
         return "Work order deleted successfully";
     }
 
+    // -----------------------------------------------------
+    // SUB-TASK ENDPOINTS
+    // -----------------------------------------------------
 
-    // =========================================================
-    // SUB-TASK CRUD OPERATIONS
-    // =========================================================
+    isolated resource function post add_subtask(SubTask task)
+        returns string|error {
 
-    // CREATE: Add a new sub-task
-    resource function post add_subtask(subtask task) returns string|error {
+        SubTask readonlyTask = task.cloneReadOnly();
 
-        // Check that the referenced work order exists
-        if !WorkOrder_Table.hasKey(task.workorderID) {
-            return error("Referenced work order does not exist");
+        lock {
+            if !WorkOrder_Table.hasKey(readonlyTask.workorderID) {
+                return error("Referenced work order does not exist");
+            }
+
+            if subtask_Table.hasKey(readonlyTask.taskID) {
+                return error("Sub-task already exists");
+            }
+
+            subtask_Table.add(readonlyTask);
         }
-
-        // Check if sub-task already exists
-        if subtask_Table.hasKey(task.taskID) {
-            return error("Sub-task already exists");
-        }
-
-        subtask_Table.add(task);
 
         return "Sub-task added successfully";
     }
 
-    // READ: Look up a sub-task
-    resource function get subtask/[string taskID]() returns subtask|error {
+    isolated resource function get subtask/[string taskID]()
+        returns SubTask|error {
 
-        subtask? task = subtask_Table[taskID];
+        lock {
+            SubTask? task = subtask_Table[taskID];
 
-        if task is subtask {
-            return task;
+            if task is SubTask {
+                return task.cloneReadOnly();
+            }
         }
 
         return error("Sub-task not found");
     }
 
-    // UPDATE: Update an existing sub-task
-    resource function put subtask/[string taskID](subtask task)
-            returns string|error {
+    isolated resource function put subtask/[string taskID](SubTask task)
+        returns string|error {
 
-        if !subtask_Table.hasKey(taskID) {
-            return error("Sub-task not found");
+        if taskID != task.taskID {
+            return error(
+                "Task ID in URL does not match task ID in request body"
+            );
         }
 
-        // Check that the referenced work order exists
-        if !WorkOrder_Table.hasKey(task.workorderID) {
-            return error("Referenced work order does not exist");
-        }
+        SubTask readonlyTask = task.cloneReadOnly();
 
-        subtask_Table.put(task);
+        lock {
+            if !subtask_Table.hasKey(taskID) {
+                return error("Sub-task not found");
+            }
+
+            if !WorkOrder_Table.hasKey(readonlyTask.workorderID) {
+                return error("Referenced work order does not exist");
+            }
+
+            subtask_Table.put(readonlyTask);
+        }
 
         return "Sub-task updated successfully";
     }
 
-    // DELETE: Remove a sub-task
-    resource function delete subtask/[string taskID]() returns string|error {
+    isolated resource function delete subtask/[string taskID]()
+        returns string|error {
 
-        if !subtask_Table.hasKey(taskID) {
-            return error("Sub-task not found");
+        lock {
+            if !subtask_Table.hasKey(taskID) {
+                return error("Sub-task not found");
+            }
+
+            _ = subtask_Table.remove(taskID);
         }
 
-        var _ = subtask_Table.remove(taskID);
-
         return "Sub-task deleted successfully";
+    }
+}
+
+// =========================================================
+// ASSET SCHEDULE STATUS API
+// =========================================================
+
+isolated service /api/assets on new http:Listener(8080) {
+
+    isolated resource function get status\-schedules/[string assetTag]()
+        returns AssetScheduleStatusResponse|http:NotFound {
+
+        lock {
+            if !assetTable.hasKey(assetTag) {
+                return http:NOT_FOUND;
+            }
+
+            Asset asset = assetTable.get(assetTag);
+
+            Schedule[] mainSchedules = asset.schedules ?: [];
+            Schedule[] compSchedules = [];
+
+            AssetComponent[]? comps = asset.components;
+
+            if comps is AssetComponent[] {
+                foreach AssetComponent comp in comps {
+                    Schedule[]? schedules = comp.schedules;
+
+                    if schedules is Schedule[] {
+                        foreach Schedule sch in schedules {
+                            compSchedules.push(sch);
+                        }
+                    }
+                }
+            }
+
+            return {
+                assetTag: asset.assetTag,
+                name: asset.name,
+                currentStatus: asset.status,
+                topLevelSchedules: mainSchedules.cloneReadOnly(),
+                componentSchedules: compSchedules.cloneReadOnly()
+            };
+        }
     }
 }
