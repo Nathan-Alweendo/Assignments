@@ -34,7 +34,7 @@ public function main() returns error? {
     }
 }
 
-//OVERDUE LOGS
+// 1. OVERDUE LOGS
 function viewOverdueMaintenance() returns error? {
     io:println("\n[Scanning] Querying past-due items from backend...");
     http:Response res = check backendClient->get("/due_date_passed");
@@ -44,11 +44,11 @@ function viewOverdueMaintenance() returns error? {
         io:println("\n--- OVERDUE ENTRIES FOUND ---");
         io:println(payload.toJsonString());
     } else {
-        io:println("Backend Notice: No overdue maintenance schedules found.");
+        io:println("Backend Notice: No overdue maintenance schedules found or connection error.");
     }
 }
 
-//ORDERS MENU
+// 2. ORDERS MENU
 function manageWorkOrdersMenu() returns error? {
     io:println("\n--- WORK ORDER MANAGEMENT ---");
     io:println("1. Open a New Work Order");
@@ -74,16 +74,18 @@ function manageWorkOrdersMenu() returns error? {
         };
 
         http:Response res = check backendClient->post("/work_order", orderPayload);
-        io:println("Server Response: ", check res.getTextPayload());
+        io:println("Server Response Code: ", res.statusCode);
+        io:println("Server Body Output: ", check res.getTextPayload());
     } 
     else if subChoice == "2" {
         string id = io:readln("Enter Work Order ID: ");
         http:Response res = check backendClient->get("/work_order/" + id);
         if res.statusCode == 200 {
             json payload = check res.getJsonPayload();
+            io:println("\n--- WORK ORDER RECORD ---");
             io:println(payload.toJsonString());
         } else {
-            io:println("Error: Work order not found.");
+            io:println("Error: Work order ID not found on server.");
         }
     }
     else if subChoice == "3" {
@@ -99,11 +101,12 @@ function manageWorkOrdersMenu() returns error? {
         };
 
         http:Response res = check backendClient->post("/add_subtask", taskPayload);
-        io:println("Server Response: ", check res.getTextPayload());
+        io:println("Server Response Code: ", res.statusCode);
+        io:println("Server Body Output: ", check res.getTextPayload());
     }
 }
 
-//KENNEDY'S INSTITUTION INTERFACE
+// 3. INSTITUTION INTERFACE
 function manageInstitutionsMenu() returns error? {
     io:println("\n--- INSTITUTION LIST MANAGEMENT ---");
     io:println("1. View Current Registered Listings");
@@ -112,8 +115,14 @@ function manageInstitutionsMenu() returns error? {
     string instChoice = io:readln("Select an action (1-3): ");
 
     if instChoice == "1" {
-        json list = check backendClient->get("/institutions");
-        io:println("\nActive System Directory: ", list.toJsonString());
+        // FIX: Handled as an http:Response instead of a raw json assignment
+        http:Response res = check backendClient->get("/institutions");
+        if res.statusCode == 200 {
+            json list = check res.getJsonPayload();
+            io:println("\nActive System Directory: ", list.toJsonString());
+        } else {
+            io:println("Error: Could not retrieve active system directory.");
+        }
     } 
     else if instChoice == "2" {
         string name = io:readln("Enter Institution Name to Add (e.g. IUM): ");
@@ -121,12 +130,13 @@ function manageInstitutionsMenu() returns error? {
         
         // Pass () as the body payload since the backend reads it from the URL string
         http:Response res = check backendClient->post(urlWithPath, ());
-        io:println("Server Response: ", check res.getTextPayload());
+        io:println("Server Response Code: ", res.statusCode);
+        io:println("Server Body Output: ", check res.getTextPayload());
     } 
     else if instChoice == "3" {
         string name = io:readln("Enter Institution Name to Remove: ");
         http:Response res = check backendClient->delete("/institutions/" + name);
-        io:println("Server Response: ", check res.getTextPayload());
+        io:println("Server Response Code: ", res.statusCode);
+        io:println("Server Body Output: ", check res.getTextPayload());
     }
-    
 }
