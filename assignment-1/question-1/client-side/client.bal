@@ -1,7 +1,7 @@
 import ballerina/http;
 import ballerina/io;
 
-// Connects to the running service
+// Connects to the running REST service on port 9090
 final http:Client backendClient = check new ("http://localhost:9090");
 
 public function main() returns error? {
@@ -12,7 +12,6 @@ public function main() returns error? {
     io:println("====================================================");
 
     while keepRunning {
-        // Main Interactive Menu Options
         io:println("\n--- MAIN MENU INTERFACE ---");
         io:println("1. Check Maintenance Overdue Logs");
         io:println("2. Manage System Work Orders & Tasks");
@@ -67,8 +66,8 @@ function manageWorkOrdersMenu() returns error? {
             "assetTag": assetTag,
             "componentID": "",
             "description": desc,
-            "status": "OPEN",
-            "dateopened": "2026-08-11",
+            "status": "UNDER_MAINTENACE", // FIXED: Changed 'OPEN' to match valid server enum values
+            "dateopened": "2026-09-14",
             "dateclosed": "",
             "assignedTo": "Maintenance Staff"
         };
@@ -97,7 +96,7 @@ function manageWorkOrdersMenu() returns error? {
             "taskID": taskID,
             "workorderID": workorderID,
             "description": desc,
-            "status": "PENDING"
+            "status": "UNDER_MAINTENACE" // FIXED: Aligned to valid server enum string
         };
 
         http:Response res = check backendClient->post("/add_subtask", taskPayload);
@@ -106,55 +105,49 @@ function manageWorkOrdersMenu() returns error? {
     }
 }
 
-// 3. UPDATED INSTITUTION INTERFACE: GLOBAL, CAMPUS & RESOURCE TRACKING
+// 3. UPDATED INSTITUTION INTERFACE
 function manageInstitutionsMenu() returns error? {
     io:println("\n--- CAMPUS RESOURCE MANAGEMENT ---");
-    io:println("1. Global View (Show All Book & Loan Resources)");
-    io:println("2. Campus View (Filter Resources by Specific Institution)");
-    io:println("3. Register a New Campus Resource (Book or Loan)");
-    io:println("4. Back to Main Menu");
-    string instChoice = io:readln("Select an action (1-4): ");
+    io:println("1. View Resource Details by Asset Tag");
+    io:println("2. Register a New Campus Resource");
+    io:println("3. Back to Main Menu");
+    string instChoice = io:readln("Select an action (1-3): ");
 
     if instChoice == "1" {
-        io:println("\n[Scanning] Fetching global inventory directory...");
-        http:Response res = check backendClient->get("/resources/global");
+        string tag = io:readln("Enter Asset Tag to search (e.g., NUST-LIB-3DP-001): ");
+        io:println("\n[Scanning] Fetching asset configuration directory...");
+        
+        // FIXED: Route path converted from /resources to /assets
+        http:Response res = check backendClient->get("/assets/" + tag);
         if res.statusCode == 200 {
-            json list = check res.getJsonPayload();
-            io:println("\n--- GLOBAL INVENTORY MAP ---");
-            io:println(list.toJsonString());
+            json item = check res.getJsonPayload();
+            io:println("\n--- ASSET CONFIGURATION DATA ---");
+            io:println(item.toJsonString());
         } else {
-            io:println("Error: Could not retrieve global system directory.");
+            io:println("Error: Could not retrieve asset registry data.");
         }
     } 
     else if instChoice == "2" {
-        string campusName = io:readln("Enter Campus Name to filter (e.g., IUM, UNAM, NUST): ");
-        io:println("\n[Filtering] Gathering records for campus: " + campusName);
-        
-        http:Response res = check backendClient->get("/resources/campus/" + campusName);
-        if res.statusCode == 200 {
-            json list = check res.getJsonPayload();
-            io:println("\n--- CAMPUS VIEW: " + campusName + " ---");
-            io:println(list.toJsonString());
-        } else {
-            io:println("Error: Could not find resource entries for this campus.");
-        }
-    } 
-    else if instChoice == "3" {
-        string resourceID = io:readln("Enter Unique Resource ID (e.g., RES-101): ");
-        string title = io:readln("Enter Title/Description of Item: ");
-        string resourceType = io:readln("Enter Resource Category (BOOK or LOAN): ");
-        string campusAssignment = io:readln("Assign to Campus Name: ");
-        string upperType = string:toUpperAscii(resourceType);
+        string assetTag = io:readln("Enter Unique Asset Tag (e.g., RES-102): ");
+        string desc = io:readln("Enter Description of Item: ");
+        string category = io:readln("Enter Category (e.g., BOOK or LOAN): ");
+        string institution = io:readln("Enter Institution Name (e.g., NUST): ");
+        string campus = io:readln("Assign to Campus Location: ");
 
+        // FIXED: Remapped keys to exactly match the backend 'Resource' structural fields
         json resourcePayload = {
-            "resourceID": resourceID,
-            "title": title,
-            "resourceType": upperType,
-            "institutionName": campusAssignment,
-            "status": "AVAILABLE"
+            "assetTag": assetTag,
+            "category": category,
+            "description": desc,
+            "institution": institution,
+            "campus": campus,
+            "status": "AVAILABLE", // <--- ADD THIS LINE EXACTLY
+            "dateAcquired": "2026-09-14" 
         };
 
-        http:Response res = check backendClient->post("/resources", resourcePayload);
+
+        // FIXED: Target context altered from /resources to /assets
+        http:Response res = check backendClient->post("/assets", resourcePayload);
         io:println("Server Response Code: ", res.statusCode);
         io:println("Server Body Output: ", check res.getTextPayload());
     }

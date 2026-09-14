@@ -39,6 +39,27 @@ listener grpc:Listener ep = new (9090);
 service "AccommodationService" on ep {
 
     remote function add_property(AddPropertyRequest value) returns AddPropertyResponse|error {
+          lock {
+            string newId = "PROP_" + (property_table.length() + 101).toString();
+
+            TableProperty newProp = {
+                property_id: newId,
+                
+                name: value.name,
+                location: value.location,
+                property_type: value.property_type,
+                price_per_night: <float>value.price_per_night,
+                status: value.status,
+                host_id: value.host_id
+            };
+
+            property_table.add(newProp);
+
+            return {
+                property_id: newId,
+                success: true
+            };
+        }
     }
 
 //Eugenes update_property code
@@ -96,16 +117,32 @@ service "AccommodationService" on ep {
 }
 
     remote function remove_property(RemovePropertyRequest value) returns RemovePropertyResponse|error {
+          lock {
+            // 1. Verify if the property exists before attempting removal
+            if !property_table.hasKey(value.property_id) {
+                return {
+                    success: false
+                };
+            }
+
+            // 2. Remove the property from the stateful table ledger
+            _ = property_table.remove(value.property_id);
+
+            // 3. FIXED: Return a valid RemovePropertyResponse record structure
+            return {
+                success: true
+            };
+        }
     }
 
 //Kennedy's confirm_booking code
 remote function search_property(SearchPropertyRequest value) returns SearchPropertyResponse|error {
-    lock {
+     lock {
         // Find property directly by its unique key
         TableProperty? prop = property_table[value.property_id];
 
-        //Use exact case-sensitive string literals for gRPC enum comparison
-        if prop is TableProperty && prop.status == "AVAILABLE" {
+        // Safely evaluate table records and avoid raw string casting crashes
+        if prop is TableProperty && prop.status.toString().equalsIgnoreCaseAscii("AVAILABLE") {
             
             Property matchingDetails = {
                 property_id: prop.property_id,
@@ -117,9 +154,9 @@ remote function search_property(SearchPropertyRequest value) returns SearchPrope
                 status: prop.status
             };
 
-            // 2. Fixed: Use string literal "AVAILABLE" for the AvailabilityStatus enum
+            // FIXED: Removed the invalid angle-bracket <AvailabilityStatus> string cast expression
             SearchPropertyResponse response = {
-                status: <AvailabilityStatus>"AVAILABLE",
+                status: PROPERTY_AVAILABLE, 
                 property: matchingDetails
             };
             return response;
@@ -278,7 +315,11 @@ remote function search_property(SearchPropertyRequest value) returns SearchPrope
                 email: req.email,
                 role: req.role
             };
+            lock{
+
+            
             user_table.add(newUser);
+            }
             createdIds.push(newUserId);
         };
         CreateUsersSummary summary={
@@ -289,33 +330,45 @@ remote function search_property(SearchPropertyRequest value) returns SearchPrope
     }
 
     remote function list_available_properties(ListAvailablePropertiesRequest value) returns stream<Property, error?>|error {
-            Property[] filteredProperties = [];
+         Property[] filteredProperties = [];
 
-        foreach var prop in TableProperty {
-            // Check availability status enum from protobuf
-            if prop.status != AVAILABLE {
+    lock {
+        foreach var prop in property_table {
+            // FIXED: Cast internal table enum to string to accurately check against the protobuf filter rules
+            if prop.status.toString() != "AVAILABLE" {
                 continue;
             }
 
             // Optional filter: Location (case-insensitive check or direct matching)
-            if req.location != "" && prop.location.toLowerAscii() != req.location.toLowerAscii() {
+            if value.location != "" && prop.location.toLowerAscii() != value.location.toLowerAscii() {
                 continue;
             }
 
             // Optional filter: Minimum Price
-            if req.min_price > 0.0 && prop.price_per_night < req.min_price {
+            if value.min_price > 0.0 && prop.price_per_night < value.min_price {
                 continue;
             }
 
             // Optional filter: Maximum Price
-            if req.max_price > 0.0 && prop.price_per_night > req.max_price {
+            if value.max_price > 0.0 && prop.price_per_night > value.max_price {
                 continue;
             }
 
-            filteredProperties.push(prop);
+            // Map data safely into the public structural layout
+            Property standardProp = {
+                property_id: prop.property_id,
+                host_id: prop.host_id,
+                name: prop.name,
+                location: prop.location,
+                property_type: prop.property_type,
+                price_per_night: prop.price_per_night,
+                status: prop.status
+            };
+            filteredProperties.push(standardProp);
         }
-
-        // Return as a stream to fulfill the server-side streaming requirement
-        return filteredProperties.toStream();
     }
+
+    // Return as a stream to fulfill the server-side streaming requirement
+    return filteredProperties.toStream();
+}
 }
