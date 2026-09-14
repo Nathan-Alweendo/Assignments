@@ -39,6 +39,7 @@ service "AccommodationService" on ep {
     }
 
     remote function update_property(UpdatePropertyRequest value) returns UpdatePropertyResponse|error {
+        
     }
 
     remote function remove_property(RemovePropertyRequest value) returns RemovePropertyResponse|error {
